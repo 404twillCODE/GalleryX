@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+* {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  border: 2px solid transparent;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.22);
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+@layer components {
+  .skeleton {
+    background: linear-gradient(90deg, #202020 25%, #2a2a2a 37%, #202020 63%);
+    background-size: 800px 100%;
+    @apply animate-shimmer;
+  }
+
+  .thin-divider {
+    @apply border-white/[0.06];
+  }
+
+  .btn-ghost {
+    @apply rounded-lg px-2.5 py-1.5 text-sm text-neutral-300 hover:bg-white/[0.06] hover:text-white transition-colors duration-150;
+  }
+
+  .panel {
+    @apply bg-base-surface border border-white/[0.06] rounded-xl shadow-panel;
+  }
+}
