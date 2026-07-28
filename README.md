@@ -46,6 +46,22 @@ npm run dist:mac     # packaged macOS app
 npm run dist:win     # packaged Windows app
 ```
 
+### macOS: “GalleryX is damaged and can’t be opened”
+
+Builds are currently **unsigned** (no Apple Developer ID certificate yet). After downloading from
+GitHub, macOS Gatekeeper marks the app with a quarantine flag and shows that misleading “damaged”
+message.
+
+Fix it once in Terminal:
+
+```bash
+xattr -cr /Applications/GalleryX.app
+```
+
+Then open GalleryX normally from Applications. (If you installed it somewhere else, use that path
+instead.) You can also right‑click the app → **Open** the first time, or allow it under
+**System Settings → Privacy & Security**.
+
 ## Video support
 
 Video metadata extraction, thumbnail generation, and format probing are powered by bundled
