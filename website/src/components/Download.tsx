@@ -1,11 +1,11 @@
 import { motion } from 'framer-motion'
 import { Apple, MonitorDown } from 'lucide-react'
 import { Reveal } from './Reveal'
-import { GITHUB_RELEASES, GITHUB_SOURCE } from '../lib/github'
+import { DOWNLOAD_MAC_ARM64, DOWNLOAD_WIN, GITHUB_SOURCE } from '../lib/github'
 
 const PLATFORMS = [
-  { icon: Apple, name: 'macOS', detail: 'Apple Silicon & Intel · macOS 12+', href: GITHUB_RELEASES },
-  { icon: MonitorDown, name: 'Windows', detail: 'Windows 10 & 11 · 64-bit', href: GITHUB_RELEASES }
+  { icon: Apple, name: 'macOS', detail: 'Apple Silicon & Intel · macOS 12+', href: DOWNLOAD_MAC_ARM64 },
+  { icon: MonitorDown, name: 'Windows', detail: 'Windows 10 & 11 · 64-bit', href: DOWNLOAD_WIN }
 ]
 
 export function Download(): JSX.Element {

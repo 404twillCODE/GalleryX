@@ -2,6 +2,7 @@ import { motion } from 'framer-motion'
 import { Apple, ArrowRight, HardDrive, Sparkles } from 'lucide-react'
 import { MockWindow } from './MockWindow'
 import { GalleryMock } from './GalleryMock'
+import { DOWNLOAD_MAC_ARM64, DOWNLOAD_WIN } from '../lib/github'
 
 const fadeUp = {
   hidden: { opacity: 0, y: 18 },
@@ -49,11 +50,11 @@ export function Hero(): JSX.Element {
         </motion.p>
 
         <motion.div custom={3} initial="hidden" animate="show" variants={fadeUp} className="mt-9 flex flex-wrap items-center justify-center gap-3">
-          <a href="#download" className="btn-primary">
+          <a href={DOWNLOAD_MAC_ARM64} className="btn-primary" target="_blank" rel="noreferrer">
             <Apple size={16} />
             Download for macOS
           </a>
-          <a href="#download" className="btn-secondary">
+          <a href={DOWNLOAD_WIN} className="btn-secondary" target="_blank" rel="noreferrer">
             Download for Windows
             <ArrowRight size={15} />
           </a>
