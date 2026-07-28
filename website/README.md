@@ -26,4 +26,4 @@ npm run preview # serve the production build locally
 ## GitHub links
 
 Source and download URLs live in `src/lib/github.ts` and currently point at
-`https://github.com/404twillCODE/GalleryX` (repo + `/releases/latest`).
+`https://github.com/404twillCODE/GalleryX` (repo + `/releases/latest` / `v0.2.0` assets).

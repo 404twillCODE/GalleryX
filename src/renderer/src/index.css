@@ -75,6 +75,7 @@ textarea {
   }
 
   .progress-fill-indeterminate {
-    @apply absolute inset-y-0 rounded-full bg-accent animate-indeterminate;
+    @apply absolute inset-y-0 rounded-full bg-accent;
+    animation: indeterminateBar 1.4s ease-in-out infinite;
   }
 }

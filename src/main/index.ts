@@ -125,6 +125,10 @@ async function reconcileOfflineDrives(): Promise<void> {
 }
 
 function createWindow(): void {
+  // In production the OS uses the packaged .icns/.ico; this path only exists in development.
+  const iconPath = path.join(__dirname, '../../build/icon.png')
+  const windowIcon = !app.isPackaged && fs.existsSync(iconPath) ? iconPath : undefined
+
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -132,6 +136,7 @@ function createWindow(): void {
     minHeight: 640,
     show: false,
     backgroundColor: '#141414',
+    icon: windowIcon,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 16 } : undefined,
     webPreferences: {
@@ -141,6 +146,10 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+
+  if (process.platform === 'darwin' && windowIcon) {
+    app.dock?.setIcon(windowIcon)
+  }
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
 
