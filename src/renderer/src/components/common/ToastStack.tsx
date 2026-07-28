@@ -19,7 +19,7 @@ export function ToastStack(): JSX.Element {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className="panel px-4 py-3 flex items-start gap-2.5 animate-scale-in shadow-floating"
+          className="panel px-4 py-3 flex items-start gap-2.5 animate-toast-in shadow-floating"
         >
           {t.tone === 'error' ? (
             <AlertTriangle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />

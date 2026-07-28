@@ -3,10 +3,13 @@ import { useAppStore } from '../../store/useAppStore'
 
 export function EmptyState(): JSX.Element {
   const drives = useAppStore((s) => s.drives)
+  const showScanOverlay = useAppStore((s) => s.showScanOverlay)
 
   const handleAddDrive = async (): Promise<void> => {
     const folder = await window.gx.chooseFolder()
-    if (folder) await window.gx.addDrive(folder)
+    if (!folder) return
+    const drive = await window.gx.addDrive(folder)
+    if (drive) showScanOverlay(drive.id)
   }
 
   return (

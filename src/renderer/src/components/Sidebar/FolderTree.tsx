@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { ChevronRight, Folder, FolderOpen, HardDrive, Upload } from 'lucide-react'
+import { ChevronRight, Film, Folder, FolderOpen, HardDrive, Upload } from 'lucide-react'
 import clsx from 'clsx'
 import { useAppStore } from '../../store/useAppStore'
 import type { FolderNode } from '../../../../shared/types'
+import { formatBytes } from '../../lib/format'
 
 function FolderRow({ node, depth }: { node: FolderNode; depth: number }): JSX.Element {
   const [expanded, setExpanded] = useState(depth < 1)
@@ -42,8 +43,17 @@ function FolderRow({ node, depth }: { node: FolderNode; depth: number }): JSX.El
         )}
         <span className="flex-1 text-left truncate">{node.name}</span>
         {node.hasExport && <Upload size={11} className="text-accent/70 flex-shrink-0" />}
+        {node.videoCount > 0 && (
+          <span className="flex items-center gap-0.5 text-[11px] text-neutral-500 tabular-nums flex-shrink-0">
+            <Film size={10} />
+            {node.videoCount.toLocaleString()}
+          </span>
+        )}
         <span className="text-xs text-neutral-500 tabular-nums flex-shrink-0">
           {node.photoCount.toLocaleString()}
+        </span>
+        <span className="text-[11px] text-neutral-600 tabular-nums flex-shrink-0 w-[52px] text-right">
+          {formatBytes(node.sizeBytes)}
         </span>
       </button>
       {expanded && hasChildren && (

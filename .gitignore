@@ -2,8 +2,11 @@ node_modules/
 out/
 dist/
 release/
+website/dist/
+website/node_modules/
 *.log
 .DS_Store
 .env
 .env.*
 scripts/*.bundle.cjs
+.testdata/

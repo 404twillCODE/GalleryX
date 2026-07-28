@@ -1,10 +1,18 @@
 import { useEffect, useState } from 'react'
-import { Camera, Folder, Heart, Info, MapPin, PanelRightClose } from 'lucide-react'
+import { Camera, Film, Folder, Heart, Info, MapPin, PanelRightClose, Star, WifiOff } from 'lucide-react'
 import clsx from 'clsx'
-import type { Photo } from '../../../../shared/types'
+import type { Photo, WorkflowStatus } from '../../../../shared/types'
 import { useAppStore } from '../../store/useAppStore'
 import type { GalleryPhotosState } from '../../hooks/useGalleryPhotos'
-import { basename, dirname, formatAperture, formatBytes, formatDate, formatFocalLength } from '../../lib/format'
+import { basename, dirname, formatAperture, formatBytes, formatDate, formatDuration, formatFocalLength } from '../../lib/format'
+
+const WORKFLOW_OPTIONS: { value: WorkflowStatus; label: string }[] = [
+  { value: 'none', label: 'None' },
+  { value: 'flagged', label: 'Flagged' },
+  { value: 'edited', label: 'Edited' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' }
+]
 
 interface Props {
   gallery: GalleryPhotosState
@@ -53,6 +61,21 @@ export function MetadataPanel({ gallery }: Props): JSX.Element {
     await window.gx.setFavorite(photo.id, next)
   }
 
+  const setRating = async (rating: number): Promise<void> => {
+    if (!photo) return
+    const next = photo.rating === rating ? 0 : rating
+    setPhoto({ ...photo, rating: next })
+    gallery.updateOne(photo.id, { rating: next })
+    await window.gx.setRating(photo.id, next)
+  }
+
+  const setWorkflow = async (status: WorkflowStatus): Promise<void> => {
+    if (!photo) return
+    setPhoto({ ...photo, workflowStatus: status })
+    gallery.updateOne(photo.id, { workflowStatus: status })
+    await window.gx.setWorkflowStatus(photo.id, status)
+  }
+
   return (
     <div className="w-[320px] flex-shrink-0 h-full flex flex-col bg-base-surface border-l border-white/[0.06]">
       <div className="h-14 flex items-center px-4 border-b border-white/[0.06] flex-shrink-0">
@@ -91,7 +114,8 @@ export function MetadataPanel({ gallery }: Props): JSX.Element {
           <div className="px-4 py-3 border-b border-white/[0.06]">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
-                <div className="text-sm font-medium text-white truncate" title={photo.filename}>
+                <div className="text-sm font-medium text-white truncate flex items-center gap-1.5" title={photo.filename}>
+                  {photo.mediaType === 'video' && <Film size={13} className="text-neutral-400 flex-shrink-0" />}
                   {photo.filename}
                 </div>
                 <div className="text-xs text-neutral-500 truncate" title={photo.folderPath}>
@@ -109,12 +133,40 @@ export function MetadataPanel({ gallery }: Props): JSX.Element {
                 <Heart size={16} fill={photo.isFavorite ? 'currentColor' : 'none'} />
               </button>
             </div>
+
+            {photo.isOffline && (
+              <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-400 bg-amber-400/10 rounded-md px-2 py-1">
+                <WifiOff size={12} />
+                Drive offline — full resolution and edits unavailable until it's reconnected.
+              </div>
+            )}
+
+            <div className="mt-2 flex items-center gap-0.5">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <button key={n} onClick={() => setRating(n)} className="text-neutral-500 hover:text-amber-400 no-drag" title={`Rate ${n} star${n > 1 ? 's' : ''}`}>
+                  <Star size={14} className={photo.rating >= n ? 'text-amber-400' : ''} fill={photo.rating >= n ? 'currentColor' : 'none'} />
+                </button>
+              ))}
+            </div>
+
+            <select
+              value={photo.workflowStatus}
+              onChange={(e) => void setWorkflow(e.target.value as WorkflowStatus)}
+              className="mt-2 w-full bg-base-raised border border-white/10 rounded-lg px-2 py-1 text-xs text-neutral-300 no-drag"
+            >
+              {WORKFLOW_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  Workflow: {o.label}
+                </option>
+              ))}
+            </select>
+
             <button
               className="mt-2 flex items-center gap-1.5 text-xs text-neutral-500 hover:text-accent no-drag"
               onClick={() => window.gx.revealInFinder(photo.path)}
             >
               <Folder size={12} />
-              Reveal in file browser
+              Show in Folder
             </button>
           </div>
 
@@ -134,17 +186,32 @@ export function MetadataPanel({ gallery }: Props): JSX.Element {
             <Row label="Date Modified" value={formatDate(photo.dateModified)} />
           </div>
 
-          <div className="px-4 py-3 border-b border-white/[0.06] space-y-0.5">
-            <div className="text-[11px] uppercase tracking-wider text-neutral-500 mb-1 flex items-center gap-1.5">
-              <Camera size={11} /> Camera
+          {photo.mediaType === 'video' ? (
+            <div className="px-4 py-3 border-b border-white/[0.06] space-y-0.5">
+              <div className="text-[11px] uppercase tracking-wider text-neutral-500 mb-1 flex items-center gap-1.5">
+                <Film size={11} /> Video
+              </div>
+              <Row label="Duration" value={formatDuration(photo.durationMs)} />
+              <Row label="Container" value={photo.container?.split(',')[0]} />
+              <Row label="Video Codec" value={photo.videoCodec?.toUpperCase()} />
+              <Row label="Audio Codec" value={photo.audioCodec?.toUpperCase() ?? 'None'} />
+              <Row label="Frame Rate" value={photo.frameRate ? `${photo.frameRate.toFixed(2)} fps` : '—'} />
+              <Row label="Bitrate" value={photo.bitrate ? `${Math.round(photo.bitrate / 1000)} kbps` : '—'} />
+              {!photo.codecSupported && <Row label="Playback" value="Unsupported codec" />}
             </div>
-            <Row label="Camera" value={[photo.cameraMake, photo.cameraModel].filter(Boolean).join(' ') || '—'} />
-            <Row label="Lens" value={photo.lens} />
-            <Row label="ISO" value={photo.iso ?? '—'} />
-            <Row label="Shutter" value={photo.shutterSpeed} />
-            <Row label="Aperture" value={formatAperture(photo.aperture)} />
-            <Row label="Focal Length" value={formatFocalLength(photo.focalLength)} />
-          </div>
+          ) : (
+            <div className="px-4 py-3 border-b border-white/[0.06] space-y-0.5">
+              <div className="text-[11px] uppercase tracking-wider text-neutral-500 mb-1 flex items-center gap-1.5">
+                <Camera size={11} /> Camera
+              </div>
+              <Row label="Camera" value={[photo.cameraMake, photo.cameraModel].filter(Boolean).join(' ') || '—'} />
+              <Row label="Lens" value={photo.lens} />
+              <Row label="ISO" value={photo.iso ?? '—'} />
+              <Row label="Shutter" value={photo.shutterSpeed} />
+              <Row label="Aperture" value={formatAperture(photo.aperture)} />
+              <Row label="Focal Length" value={formatFocalLength(photo.focalLength)} />
+            </div>
+          )}
 
           <div className="px-4 py-3 border-b border-white/[0.06] space-y-0.5">
             <div className="text-[11px] uppercase tracking-wider text-neutral-500 mb-1 flex items-center gap-1.5">
@@ -158,9 +225,11 @@ export function MetadataPanel({ gallery }: Props): JSX.Element {
             <Row label="Orientation" value={photo.orientation ?? '—'} />
           </div>
 
-          <div className="px-4 py-3 flex items-center gap-2 text-xs text-neutral-500">
+          <div className="px-4 py-3 flex items-center gap-2 text-xs text-neutral-500 flex-wrap">
             {photo.isExport && (
-              <span className="px-2 py-0.5 rounded-full bg-accent/15 text-accent">Export</span>
+              <span className="px-2 py-0.5 rounded-full bg-accent/15 text-accent">
+                Exported{photo.exportFolderName ? ` · ${photo.exportFolderName}` : ''}
+              </span>
             )}
             {photo.isRaw && <span className="px-2 py-0.5 rounded-full bg-white/[0.06] text-neutral-300">RAW</span>}
           </div>

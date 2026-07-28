@@ -1,20 +1,35 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import type { Photo } from '../../../../shared/types'
+import clsx from 'clsx'
+import type { Photo, SortField } from '../../../../shared/types'
 import { useAppStore } from '../../store/useAppStore'
-import type { GalleryPhotosState } from '../../hooks/useGalleryPhotos'
+import { dayKey, formatGroupLabel } from '../../lib/format'
 import { PhotoTile } from './PhotoTile'
 import { EmptyState } from './EmptyState'
 
 const GAP = 8
 const PADDING_X = 16
+const HEADER_ROW_HEIGHT = 44
+// Date headers only make sense while the gallery is ordered by one of these fields — sorting
+// by name/size/etc. would otherwise scatter same-day photos across the grid.
+const DATE_SORT_FIELDS: SortField[] = ['dateTaken', 'dateCreated', 'dateModified']
 
-interface Row {
-  items: (Photo & { renderWidth: number })[]
-  height: number
+type PhotoRow = { type: 'photos'; items: (Photo & { renderWidth: number })[]; height: number }
+type HeaderRow = { type: 'header'; label: string; key: string }
+type Row = PhotoRow | HeaderRow
+
+export interface GalleryGridHandle {
+  scrollToGroupKey: (key: string) => void
 }
 
-function buildRows(items: Photo[], containerWidth: number, targetHeight: number): Row[] {
+export type GroupOfFn = (photo: Photo) => { key: string; label: string } | null
+
+function buildRows(
+  items: Photo[],
+  containerWidth: number,
+  targetHeight: number,
+  groupOf: GroupOfFn | null
+): Row[] {
   if (containerWidth <= 0) return []
   const availableWidth = containerWidth - PADDING_X * 2
   const rows: Row[] = []
@@ -27,6 +42,7 @@ function buildRows(items: Photo[], containerWidth: number, targetHeight: number)
     const rawWidth = currentWidth
     const scale = stretch ? Math.min(1.35, Math.max(0.75, (availableWidth - totalGap) / Math.max(1, rawWidth))) : 1
     rows.push({
+      type: 'photos',
       items: current.map(({ photo, naturalWidth }) => ({ ...photo, renderWidth: Math.round(naturalWidth * scale) })),
       height: Math.round(targetHeight * scale)
     })
@@ -34,7 +50,16 @@ function buildRows(items: Photo[], containerWidth: number, targetHeight: number)
     currentWidth = 0
   }
 
+  let lastGroupKey: string | null = null
   for (const photo of items) {
+    if (groupOf) {
+      const group = groupOf(photo)
+      if (group && group.key !== lastGroupKey) {
+        flush(true)
+        rows.push({ type: 'header', label: group.label, key: group.key })
+        lastGroupKey = group.key
+      }
+    }
     const ratio = photo.width && photo.height ? photo.width / photo.height : 1.5
     const naturalWidth = targetHeight * Math.max(0.4, Math.min(3, ratio))
     const totalGapIfAdded = GAP * current.length
@@ -49,13 +74,27 @@ function buildRows(items: Photo[], containerWidth: number, targetHeight: number)
   return rows
 }
 
-interface Props {
-  gallery: GalleryPhotosState
+/** Structural subset of both `useGalleryPhotos` and `useTimelinePhotos` — GalleryGrid only
+ *  needs these fields, so it can render either kind of paginated media list. */
+interface GallerySource {
+  items: Photo[]
+  total: number
+  loading: boolean
+  hasMore: boolean
+  loadMore: () => void
 }
 
-export function GalleryGrid({ gallery }: Props): JSX.Element {
+interface Props {
+  gallery: GallerySource
+  /** Overrides the default "group by day when sorted by a date field" behavior — used by the
+   *  Timeline view to group by year/month/shoot/camera/lens/folder/drive instead. */
+  groupOf?: GroupOfFn
+}
+
+export const GalleryGrid = forwardRef<GalleryGridHandle, Props>(function GalleryGrid({ gallery, groupOf }, ref) {
   const { items, loading, hasMore, loadMore, total } = gallery
   const thumbnailSize = useAppStore((s) => s.thumbnailSize)
+  const sortField = useAppStore((s) => s.sortField)
   const selectedIds = useAppStore((s) => s.selectedIds)
   const setSelection = useAppStore((s) => s.setSelection)
   const anchorId = useAppStore((s) => s.anchorId)
@@ -81,14 +120,26 @@ export function GalleryGrid({ gallery }: Props): JSX.Element {
     return () => observer.disconnect()
   }, [setContainerWidth])
 
+  const defaultGroupField = DATE_SORT_FIELDS.includes(sortField) ? sortField : null
+  const effectiveGroupOf: GroupOfFn | null = useMemo(() => {
+    if (groupOf) return groupOf
+    if (!defaultGroupField) return null
+    return (photo) => {
+      const dateValue = photo[defaultGroupField] as string | null
+      return { key: dayKey(dateValue), label: formatGroupLabel(dateValue) }
+    }
+  }, [groupOf, defaultGroupField])
+
   const rows = useMemo(
-    () => buildRows(items, containerWidth, thumbnailSize),
-    [items, containerWidth, thumbnailSize]
+    () => buildRows(items, containerWidth, thumbnailSize, effectiveGroupOf),
+    [items, containerWidth, thumbnailSize, effectiveGroupOf]
   )
 
   useEffect(() => {
-    if (rows.length > 2) {
-      const avgCols = Math.round(rows.slice(0, Math.min(6, rows.length)).reduce((s, r) => s + r.items.length, 0) / Math.min(6, rows.length))
+    const photoRows = rows.filter((r): r is PhotoRow => r.type === 'photos')
+    if (photoRows.length > 2) {
+      const sample = photoRows.slice(0, Math.min(6, photoRows.length))
+      const avgCols = Math.round(sample.reduce((s, r) => s + r.items.length, 0) / sample.length)
       setGridColumns(Math.max(1, avgCols))
     }
   }, [rows, setGridColumns])
@@ -96,9 +147,23 @@ export function GalleryGrid({ gallery }: Props): JSX.Element {
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => thumbnailSize + GAP,
+    estimateSize: (i) => (rows[i]?.type === 'header' ? HEADER_ROW_HEIGHT : thumbnailSize + GAP),
     overscan: 6
   })
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToGroupKey: (key: string) => {
+        // Exact match first (e.g. day/shoot/camera keys), then prefix match so a "jump to year"
+        // request still lands correctly when the active grouping is finer (e.g. year-month).
+        let idx = rows.findIndex((r) => r.type === 'header' && r.key === key)
+        if (idx < 0) idx = rows.findIndex((r) => r.type === 'header' && r.key.startsWith(key))
+        if (idx >= 0) rowVirtualizer.scrollToIndex(idx, { align: 'start' })
+      }
+    }),
+    [rows, rowVirtualizer]
+  )
 
   const virtualItems = rowVirtualizer.getVirtualItems()
 
@@ -119,7 +184,7 @@ export function GalleryGrid({ gallery }: Props): JSX.Element {
       const visibleIds: string[] = []
       for (const v of virtualItems) {
         const row = rows[v.index]
-        if (!row) continue
+        if (!row || row.type !== 'photos') continue
         for (const p of row.items) visibleIds.push(p.id)
       }
       if (visibleIds.length) window.gx.prioritizeThumbnails(visibleIds)
@@ -132,13 +197,19 @@ export function GalleryGrid({ gallery }: Props): JSX.Element {
   const flatIndexMap = useMemo(() => {
     const map = new Map<string, number>()
     let i = 0
-    for (const row of rows) for (const p of row.items) map.set(p.id, i++)
+    for (const row of rows) {
+      if (row.type !== 'photos') continue
+      for (const p of row.items) map.set(p.id, i++)
+    }
     return map
   }, [rows])
 
   const flatOrder = useMemo(() => {
     const arr: string[] = []
-    for (const row of rows) for (const p of row.items) arr.push(p.id)
+    for (const row of rows) {
+      if (row.type !== 'photos') continue
+      for (const p of row.items) arr.push(p.id)
+    }
     return arr
   }, [rows])
 
@@ -177,6 +248,21 @@ export function GalleryGrid({ gallery }: Props): JSX.Element {
           {virtualItems.map((virtualRow) => {
             const row = rows[virtualRow.index]
             if (!row) return null
+
+            if (row.type === 'header') {
+              return (
+                <div
+                  key={virtualRow.key}
+                  ref={rowVirtualizer.measureElement}
+                  data-index={virtualRow.index}
+                  style={{ position: 'absolute', top: virtualRow.start, left: 0, width: '100%' }}
+                  className={clsx('flex items-baseline px-1', virtualRow.index === 0 ? 'pt-1 pb-2.5' : 'pt-5 pb-2.5')}
+                >
+                  <h3 className="text-[15px] font-semibold text-neutral-100 tracking-tight">{row.label}</h3>
+                </div>
+              )
+            }
+
             return (
               <div
                 key={virtualRow.key}
@@ -213,4 +299,4 @@ export function GalleryGrid({ gallery }: Props): JSX.Element {
       )}
     </div>
   )
-}
+})

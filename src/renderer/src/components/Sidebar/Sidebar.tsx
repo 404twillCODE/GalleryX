@@ -13,6 +13,11 @@ interface Props {
   scanProgress: Record<string, ScanProgressEvent>
 }
 
+// macOS draws the native traffic-light (close/minimize/zoom) buttons on top of whatever is
+// rendered underneath them at a fixed window-level inset (see trafficLightPosition in
+// main/index.ts). Reserve a clear strip above our own header content so nothing overlaps them.
+const isMac = window.gx.platform === 'darwin'
+
 export function Sidebar({ collapsed, scanProgress }: Props): JSX.Element {
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const setSettingsOpen = useAppStore((s) => s.setSettingsOpen)
@@ -27,6 +32,7 @@ export function Sidebar({ collapsed, scanProgress }: Props): JSX.Element {
   if (collapsed) {
     return (
       <div className="w-[64px] flex-shrink-0 h-full flex flex-col items-center py-3 gap-4 bg-base-surface border-r border-white/[0.06] drag-region">
+        {isMac && <div className="h-5 w-full flex-shrink-0" />}
         <div className="w-8 h-8 rounded-lg bg-accent/20 text-accent flex items-center justify-center no-drag">
           <Images size={18} />
         </div>
@@ -48,6 +54,7 @@ export function Sidebar({ collapsed, scanProgress }: Props): JSX.Element {
 
   return (
     <div className="w-[280px] flex-shrink-0 h-full flex flex-col bg-base-surface border-r border-white/[0.06]">
+      {isMac && <div className="h-6 drag-region flex-shrink-0" />}
       <div className="h-14 flex items-center gap-2 px-4 drag-region flex-shrink-0">
         <div className="w-7 h-7 rounded-lg bg-accent/20 text-accent flex items-center justify-center no-drag">
           <Images size={16} />

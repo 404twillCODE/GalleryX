@@ -3,8 +3,12 @@ import { Sidebar } from './components/Sidebar/Sidebar'
 import { GalleryPanel } from './components/Gallery/GalleryPanel'
 import { MetadataPanel } from './components/MetadataPanel/MetadataPanel'
 import { ImageViewer } from './components/Viewer/ImageViewer'
+import { VideoViewer } from './components/Viewer/VideoViewer'
 import { SettingsModal } from './components/Settings/SettingsModal'
 import { ToastStack } from './components/common/ToastStack'
+import { TimelineView } from './components/Timeline/TimelineView'
+import { DuplicateCenter } from './components/Duplicates/DuplicateCenter'
+import { DriveScanOverlay } from './components/Drives/DriveScanOverlay'
 import { useAppStore } from './store/useAppStore'
 import { useLibrarySync } from './hooks/useLibrarySync'
 import { useGalleryPhotos } from './hooks/useGalleryPhotos'
@@ -33,8 +37,13 @@ export default function App(): JSX.Element {
   const thumbnailSize = useAppStore((s) => s.thumbnailSize)
   const setThumbnailSize = useAppStore((s) => s.setThumbnailSize)
   const requestSearchFocus = useAppStore((s) => s.requestSearchFocus)
+  const activeSection = useAppStore((s) => s.activeSection)
+  const showScanOverlay = useAppStore((s) => s.showScanOverlay)
+  const scanOverlayDriveId = useAppStore((s) => s.scanOverlayDriveId)
+  const hideScanOverlay = useAppStore((s) => s.hideScanOverlay)
 
   const items = gallery.items
+  const activePhoto = useMemo(() => items.find((p) => p.id === activePhotoId), [items, activePhotoId])
   const indexById = useMemo(() => {
     const map = new Map<string, number>()
     items.forEach((p, i) => map.set(p.id, i))
@@ -79,7 +88,10 @@ export default function App(): JSX.Element {
       if (meta && e.key.toLowerCase() === 'o') {
         e.preventDefault()
         void window.gx.chooseFolder().then((p) => {
-          if (p) void window.gx.addDrive(p)
+          if (!p) return
+          void window.gx.addDrive(p).then((drive) => {
+            if (drive) showScanOverlay(drive.id)
+          })
         })
         return
       }
@@ -96,7 +108,8 @@ export default function App(): JSX.Element {
       if (isEditable) return
 
       if (e.key === 'Escape') {
-        if (viewerOpen) closeViewer()
+        if (scanOverlayDriveId) hideScanOverlay()
+        else if (viewerOpen) closeViewer()
         else if (settingsOpen) setSettingsOpen(false)
         return
       }
@@ -106,19 +119,22 @@ export default function App(): JSX.Element {
         if (id) openViewer(id)
         return
       }
-      if (e.key.toLowerCase() === 'f') {
+      // In the video viewer, F is reserved for fullscreen (per spec) — the favorite shortcut
+      // there is intentionally the dedicated Favorite button only, to avoid a double-trigger.
+      if (e.key.toLowerCase() === 'f' && !(viewerOpen && activePhoto?.mediaType === 'video')) {
         void toggleFavoriteForSelection()
         return
       }
-      if (e.key === '+' || e.key === '=') {
+      // When the full-screen viewer is open, +/-/0 control its zoom instead (handled there).
+      if (!viewerOpen && (e.key === '+' || e.key === '=')) {
         setThumbnailSize(Math.min(THUMB_MAX, thumbnailSize + THUMB_STEP))
         return
       }
-      if (e.key === '-' || e.key === '_') {
+      if (!viewerOpen && (e.key === '-' || e.key === '_')) {
         setThumbnailSize(Math.max(THUMB_MIN, thumbnailSize - THUMB_STEP))
         return
       }
-      if (e.key === '0') {
+      if (!viewerOpen && e.key === '0') {
         setThumbnailSize(THUMB_DEFAULT)
         return
       }
@@ -137,6 +153,7 @@ export default function App(): JSX.Element {
   }, [
     anchorId,
     activePhotoId,
+    activePhoto,
     viewerOpen,
     settingsOpen,
     thumbnailSize,
@@ -147,16 +164,30 @@ export default function App(): JSX.Element {
     openViewer,
     setSettingsOpen,
     setThumbnailSize,
-    requestSearchFocus
+    requestSearchFocus,
+    showScanOverlay,
+    scanOverlayDriveId,
+    hideScanOverlay
   ])
 
   return (
     <div className="h-screen w-screen flex bg-base-bg text-neutral-200 overflow-hidden select-none">
       <Sidebar collapsed={sidebarCollapsed} scanProgress={scanProgress} />
-      <GalleryPanel gallery={gallery} />
-      {!metadataPanelCollapsed && <MetadataPanel gallery={gallery} />}
-      {viewerOpen && <ImageViewer items={items} />}
+      <div key={activeSection} className="flex-1 flex min-w-0 animate-slide-fade-in">
+        {activeSection === 'timeline' ? (
+          <TimelineView />
+        ) : activeSection === 'duplicates' ? (
+          <DuplicateCenter />
+        ) : (
+          <>
+            <GalleryPanel gallery={gallery} />
+            {!metadataPanelCollapsed && <MetadataPanel gallery={gallery} />}
+          </>
+        )}
+      </div>
+      {viewerOpen && (activePhoto?.mediaType === 'video' ? <VideoViewer items={items} /> : <ImageViewer items={items} />)}
       {settingsOpen && <SettingsModal />}
+      <DriveScanOverlay scanProgress={scanProgress} />
       <ToastStack />
     </div>
   )

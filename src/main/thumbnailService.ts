@@ -5,6 +5,8 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import type { GalleryDatabase } from './db'
 import type { ThumbJob, ThumbResult } from './workers/thumbnailWorker'
+import type { VideoThumbPosition } from './workers/videoFrame'
+import type { MediaType } from '../shared/types'
 
 export type ThumbTier = 'thumb' | 'preview'
 
@@ -13,19 +15,25 @@ const TIER_SIZE: Record<ThumbTier, number> = {
   preview: 2048
 }
 
-const POOL_SIZE = Math.max(2, Math.min(6, os.cpus().length - 1))
-const BATCH_LOOKAHEAD = 60
+// Thumbnail jobs now read a small bounded prefix of each RAW file (see rawPreview.ts) instead
+// of the whole 30-60MB file, so they're far lighter on disk I/O than before — a larger pool
+// keeps more CPU cores busy decoding/resizing without saturating the drive.
+const POOL_SIZE = Math.max(2, Math.min(8, os.cpus().length - 1))
+const BATCH_LOOKAHEAD = 80
+const DEFAULT_JOB_TIMEOUT_MS = 25000
 
 interface QueueItem {
   id: string
   path: string
   extension: string
   tier: ThumbTier
+  mediaType: MediaType
 }
 
 export class ThumbnailService {
   private pool: Worker[] = []
   private busy = new Set<Worker>()
+  private waiters: ((worker: Worker) => void)[] = []
   private nextJobId = 1
   private inFlight = new Map<number, { item: QueueItem; resolve: (r: ThumbResult) => void }>()
   private hotIds: string[] = []
@@ -40,7 +48,8 @@ export class ThumbnailService {
     private workerScriptPath: string,
     private cacheDir: string,
     cacheSizeLimitMB: () => number,
-    private onThumbsReady: (ids: string[], tier: ThumbTier) => void
+    private onThumbsReady: (ids: string[], tier: ThumbTier) => void,
+    private videoThumbPosition: () => VideoThumbPosition = () => 'ten-percent'
   ) {
     this.cacheSizeLimitBytes = () => cacheSizeLimitMB() * 1024 * 1024
     for (const tier of ['thumb', 'preview'] as ThumbTier[]) {
@@ -59,6 +68,10 @@ export class ThumbnailService {
   }
 
   start(): void {
+    // Rows can be left stuck in 'processing' if the app was closed/crashed mid-batch. They'd
+    // never be picked up again otherwise (getPendingThumbs only looks at 'pending'), silently
+    // shrinking the effective queue over repeated runs.
+    this.db.resetStuckProcessing()
     for (let i = 0; i < POOL_SIZE; i++) {
       const worker = new Worker(this.workerScriptPath)
       worker.on('message', (result: ThumbResult) => this.handleResult(worker, result))
@@ -85,14 +98,57 @@ export class ThumbnailService {
     this.hotIds = ids
   }
 
-  /** Requests a preview-tier thumbnail be generated (used by the full viewer), returns once done. */
+  /** Requests a preview-tier thumbnail be generated (used by the full viewer), returns once done.
+   *  If the whole worker pool is busy with background thumbnail generation (the common case with
+   *  a large library), this waits for the next worker to free up instead of failing immediately —
+   *  it jumps to the front of the line ahead of queued background jobs since it's interactive. */
   async requestPreview(id: string): Promise<string | null> {
     const outPath = this.cachePathFor(id, 'preview')
     if (fs.existsSync(outPath)) return outPath
     const [photo] = this.db.getPhotosByIds([id])
     if (!photo) return null
-    const result = await this.runJob({ id: photo.id, path: photo.path, extension: photo.extension, tier: 'preview' })
+    const result = await this.runJob(
+      { id: photo.id, path: photo.path, extension: photo.extension, tier: 'preview', mediaType: photo.mediaType },
+      { priority: true, timeoutMs: 20000 }
+    )
     return result.ok ? outPath : null
+  }
+
+  private acquireWorker(opts?: { priority?: boolean; timeoutMs?: number }): Promise<Worker | undefined> {
+    const free = this.pool.find((w) => !this.busy.has(w))
+    if (free) {
+      this.busy.add(free)
+      return Promise.resolve(free)
+    }
+    return new Promise((resolve) => {
+      let settled = false
+      const waiter = (worker: Worker): void => {
+        if (settled) return
+        settled = true
+        resolve(worker)
+      }
+      if (opts?.priority) this.waiters.unshift(waiter)
+      else this.waiters.push(waiter)
+
+      if (opts?.timeoutMs) {
+        setTimeout(() => {
+          if (settled) return
+          settled = true
+          const idx = this.waiters.indexOf(waiter)
+          if (idx !== -1) this.waiters.splice(idx, 1)
+          resolve(undefined)
+        }, opts.timeoutMs)
+      }
+    })
+  }
+
+  private releaseWorker(worker: Worker): void {
+    const waiter = this.waiters.shift()
+    if (waiter) {
+      waiter(worker)
+    } else {
+      this.busy.delete(worker)
+    }
   }
 
   private async driveLoop(): Promise<void> {
@@ -144,9 +200,13 @@ export class ThumbnailService {
       for (const id of this.hotIds) {
         if (items.length >= count) break
         const c = byId.get(id)
-        if (!c || seen.has(id)) continue
+        // Skip anything already generated (or currently being generated) — otherwise the
+        // photos visible on screen keep monopolizing every batch forever (prioritize() gets
+        // called repeatedly with the same visible ids while the user isn't scrolling), starving
+        // the rest of the library and making it look like generation has stalled entirely.
+        if (!c || seen.has(id) || c.thumbStatus === 'ready' || c.thumbStatus === 'processing') continue
         seen.add(id)
-        items.push({ id: c.id, path: c.path, extension: c.extension, tier: 'thumb' })
+        items.push({ id: c.id, path: c.path, extension: c.extension, tier: 'thumb', mediaType: c.mediaType })
       }
     }
 
@@ -156,23 +216,48 @@ export class ThumbnailService {
         if (items.length >= count) break
         if (seen.has(p.id)) continue
         seen.add(p.id)
-        items.push({ id: p.id, path: p.path, extension: p.extension, tier: 'thumb' })
+        items.push({ id: p.id, path: p.path, extension: p.extension, tier: 'thumb', mediaType: p.mediaType })
       }
     }
 
     return items
   }
 
-  private runJob(item: QueueItem): Promise<ThumbResult> {
+  private async runJob(
+    item: QueueItem,
+    opts?: { priority?: boolean; timeoutMs?: number }
+  ): Promise<ThumbResult> {
+    const worker = await this.acquireWorker(opts)
+    if (!worker) {
+      return { jobId: -1, id: item.id, ok: false, error: 'timed out waiting for a free worker' }
+    }
+    // Every job gets a hard timeout — a single unexpectedly slow/stuck file (permission prompt,
+    // flaky external drive, weird corrupt data) must never be able to wedge the whole batch:
+    // driveLoop awaits Promise.all() over a batch, so one job that never resolves would silently
+    // stall thumbnail generation for the entire library forever.
+    const timeoutMs = opts?.timeoutMs ?? DEFAULT_JOB_TIMEOUT_MS
     return new Promise((resolve) => {
-      const worker = this.pool.find((w) => !this.busy.has(w))
-      if (!worker) {
-        resolve({ jobId: -1, id: item.id, ok: false, error: 'no worker available' })
-        return
-      }
       const jobId = this.nextJobId++
-      this.busy.add(worker)
-      this.inFlight.set(jobId, { item, resolve })
+      let settled = false
+
+      const timer = setTimeout(() => {
+        if (settled) return
+        settled = true
+        this.inFlight.delete(jobId)
+        this.replaceHungWorker(worker)
+        resolve({ jobId, id: item.id, ok: false, error: 'thumbnail job timed out' })
+      }, timeoutMs)
+
+      this.inFlight.set(jobId, {
+        item,
+        resolve: (r) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          resolve(r)
+        }
+      })
+
       const outPath = this.cachePathFor(item.id, item.tier)
       fs.mkdirSync(path.dirname(outPath), { recursive: true })
       const job: ThumbJob = {
@@ -181,19 +266,42 @@ export class ThumbnailService {
         filePath: item.path,
         extension: item.extension,
         outPath,
-        size: TIER_SIZE[item.tier]
+        size: TIER_SIZE[item.tier],
+        mediaType: item.mediaType,
+        videoThumbPosition: this.videoThumbPosition()
       }
       worker.postMessage(job)
     })
   }
 
-  private handleResult(worker: Worker, result: ThumbResult): void {
+  /** Called when a job on this worker timed out — we can no longer trust it to ever respond
+   *  (it may be permanently stuck), so swap it out for a fresh one rather than leaking a pool
+   *  slot forever. */
+  private replaceHungWorker(worker: Worker): void {
+    const idx = this.pool.indexOf(worker)
+    if (idx === -1) return // already replaced, or a result arrived and released it normally
+    this.pool.splice(idx, 1)
     this.busy.delete(worker)
+    try {
+      void worker.terminate()
+    } catch {
+      /* ignore */
+    }
+    const replacement = new Worker(this.workerScriptPath)
+    replacement.on('message', (result: ThumbResult) => this.handleResult(replacement, result))
+    replacement.on('error', (err) => console.error('[thumbnail worker error]', err))
+    this.pool.push(replacement)
+  }
+
+  private handleResult(worker: Worker, result: ThumbResult): void {
     const pending = this.inFlight.get(result.jobId)
     if (pending) {
       this.inFlight.delete(result.jobId)
       pending.resolve(result)
     }
+    // If this worker was already swapped out due to a timeout, it's no longer part of the pool
+    // — don't hand it back out to a waiter or re-track it as available.
+    if (this.pool.includes(worker)) this.releaseWorker(worker)
   }
 
   private maybeEvict(): void {

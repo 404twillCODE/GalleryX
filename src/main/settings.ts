@@ -2,6 +2,7 @@ import Store from 'electron-store'
 import { app } from 'electron'
 import path from 'node:path'
 import type { Settings } from '../shared/types'
+import { DEFAULT_EXPORT_MATCH_SETTINGS } from '../shared/types'
 
 const defaults: Settings = {
   thumbnailSize: 220,
@@ -13,7 +14,18 @@ const defaults: Settings = {
   rawSupport: true,
   scanSubfolders: true,
   watchForChanges: true,
-  theme: 'dark'
+  theme: 'dark',
+
+  exportMatch: DEFAULT_EXPORT_MATCH_SETTINGS,
+
+  videoThumbnailPosition: 'ten-percent',
+  videoHoverPreview: false,
+
+  permanentDeleteEnabled: false,
+  duplicateHashConcurrency: 4,
+
+  timelineDefaultGroupBy: 'year-month',
+  shootGapMinutes: 180
 }
 
 class SettingsService {

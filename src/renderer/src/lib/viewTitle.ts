@@ -10,6 +10,8 @@ export function viewTitle(view: ViewId): string {
   switch (view.kind) {
     case 'all':
       return 'All Photos'
+    case 'videos':
+      return 'Videos'
     case 'favorites':
       return 'Favorites'
     case 'exports':
@@ -20,6 +22,8 @@ export function viewTitle(view: ViewId): string {
       return basename(view.path) || view.path
     case 'search':
       return `Search: "${view.query}"`
+    case 'timeline':
+      return 'Timeline'
     default:
       return 'Photos'
   }

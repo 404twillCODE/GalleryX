@@ -10,11 +10,14 @@ interface Props {
 export function DriveSection({ totalPhotoCount }: Props): JSX.Element {
   const drives = useAppStore((s) => s.drives)
   const driveErrors = useAppStore((s) => s.driveErrors)
+  const showScanOverlay = useAppStore((s) => s.showScanOverlay)
   const [menuFor, setMenuFor] = useState<string | null>(null)
 
   const handleAddDrive = async (): Promise<void> => {
     const folder = await window.gx.chooseFolder()
-    if (folder) await window.gx.addDrive(folder)
+    if (!folder) return
+    const drive = await window.gx.addDrive(folder)
+    if (drive) showScanOverlay(drive.id)
   }
 
   return (
@@ -83,6 +86,7 @@ export function DriveSection({ totalPhotoCount }: Props): JSX.Element {
                   className="w-full text-left px-3 py-1.5 hover:bg-white/[0.06] flex items-center gap-2 no-drag"
                   onClick={() => {
                     void window.gx.rescanDrive(drive.id)
+                    showScanOverlay(drive.id)
                     setMenuFor(null)
                   }}
                 >

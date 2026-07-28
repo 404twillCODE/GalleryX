@@ -1,0 +1,57 @@
+appId: com.galleryx.app
+productName: GalleryX
+copyright: Copyright © 2026 GalleryX
+directories:
+  output: release
+  buildResources: build
+files:
+  - 'out/**/*'
+  - 'package.json'
+  - '!**/{.testdata,.git,website,tests,scripts}/**'
+asar: true
+asarUnpack:
+  - '**/*.{node,dylib,so,dll}'
+  - '**/ffmpeg-static/**'
+  - '**/ffprobe-static/**'
+  - '**/sharp/**'
+extraResources: []
+mac:
+  category: public.app-category.photography
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  identity: null
+dmg:
+  artifactName: GalleryX-${version}-mac-${arch}.${ext}
+win:
+  # On Windows CI: NSIS installer + zip. Local cross-compile from macOS uses zip only
+  # (NSIS requires Wine, which we don't ship).
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: zip
+      arch:
+        - x64
+  artifactName: GalleryX-${version}-win-${arch}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: GalleryX
+linux:
+  target:
+    - AppImage
+  category: Graphics
+npmRebuild: true

@@ -76,6 +76,18 @@ interface AppState {
   toasts: { id: number; tone: 'error' | 'info'; message: string }[]
   pushToast: (tone: 'error' | 'info', message: string) => void
   dismissToast: (id: number) => void
+
+  /** Top-level content area: the normal library/gallery, the Timeline browser, or the
+   *  Duplicate Detection Center. These replace the gallery+metadata panel entirely (unlike
+   *  Settings, which floats as a modal over whatever's currently showing). */
+  activeSection: 'library' | 'timeline' | 'duplicates'
+  setActiveSection: (s: 'library' | 'timeline' | 'duplicates') => void
+
+  /** Drive whose scan progress the full-screen scanning overlay is currently tracking (set
+   *  right after "Add Drive" / "Rescan"). Null hides the overlay entirely. */
+  scanOverlayDriveId: string | null
+  showScanOverlay: (driveId: string) => void
+  hideScanOverlay: () => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -85,14 +97,14 @@ export const useAppStore = create<AppState>((set) => ({
   folderTree: [],
   setFolderTree: (folderTree) => set({ folderTree }),
 
-  collectionCounts: { all: 0, favorites: 0, exports: 0, recent: 0 },
+  collectionCounts: { all: 0, videos: 0, favorites: 0, exports: 0, recent: 0 },
   setCollectionCounts: (collectionCounts) => set({ collectionCounts }),
 
   settings: null,
   setSettings: (settings) => set({ settings, thumbnailSize: settings.thumbnailSize }),
 
   view: { kind: 'all' },
-  setView: (view) => set({ view, selectedIds: [], anchorId: null }),
+  setView: (view) => set({ view, selectedIds: [], anchorId: null, activeSection: 'library' }),
 
   sortField: 'dateTaken',
   sortDirection: 'desc',
@@ -149,5 +161,12 @@ export const useAppStore = create<AppState>((set) => ({
   toasts: [],
   pushToast: (tone, message) =>
     set((s) => ({ toasts: [...s.toasts, { id: Date.now() + Math.random(), tone, message }] })),
-  dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+  dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+  activeSection: 'library',
+  setActiveSection: (activeSection) => set({ activeSection }),
+
+  scanOverlayDriveId: null,
+  showScanOverlay: (driveId) => set({ scanOverlayDriveId: driveId }),
+  hideScanOverlay: () => set({ scanOverlayDriveId: null })
 }))

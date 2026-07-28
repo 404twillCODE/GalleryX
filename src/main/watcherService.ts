@@ -2,7 +2,9 @@ import chokidar, { type FSWatcher } from 'chokidar'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { GalleryDatabase } from './db'
-import { isExportFolderName, SUPPORTED_EXTENSIONS } from '../shared/types'
+import { mediaTypeForExtension, SUPPORTED_EXTENSIONS, isVideoExtension } from '../shared/types'
+import { ExportMatcher, isVideoAllowedInExports } from './exportRules'
+import { settingsService } from './settings'
 
 export class WatcherService {
   private watchers = new Map<string, FSWatcher>()
@@ -48,7 +50,12 @@ export class WatcherService {
     try {
       const stat = await fs.stat(filePath)
       const dir = path.dirname(filePath)
-      const isExport = dir.split(path.sep).some((segment) => isExportFolderName(segment))
+      const matchSettings = settingsService.get('exportMatch')
+      const matcher = new ExportMatcher(this.db.listExportRules(), matchSettings)
+      const segments = dir.split(path.sep).filter(Boolean)
+      const { matched, folderName } = matcher.matchesPath(segments)
+      const isVideo = isVideoExtension(ext)
+      const isExport = matched && isVideoAllowedInExports(matchSettings, isVideo)
       this.db.upsertBaseline({
         driveId,
         path: filePath,
@@ -56,10 +63,12 @@ export class WatcherService {
         filename: path.basename(filePath),
         extension: ext,
         sizeBytes: stat.size,
+        mediaType: mediaTypeForExtension(ext),
         dateCreated: (stat.birthtime ?? stat.ctime).toISOString(),
         dateModified: stat.mtime.toISOString(),
         mtimeMs: stat.mtimeMs,
         isExport,
+        exportFolderName: isExport ? folderName : null,
         fingerprint: `${stat.size}-${Math.round(stat.mtimeMs)}`
       })
       this.onChange(driveId)

@@ -55,10 +55,26 @@ textarea {
   }
 
   .btn-ghost {
-    @apply rounded-lg px-2.5 py-1.5 text-sm text-neutral-300 hover:bg-white/[0.06] hover:text-white transition-colors duration-150;
+    @apply inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-neutral-300 hover:bg-white/[0.06] hover:text-white transition-colors duration-150;
+  }
+
+  .btn-accent {
+    @apply rounded-lg px-3 py-1.5 text-sm font-medium text-white bg-accent hover:bg-accent/90 transition-colors duration-150 inline-flex items-center justify-center gap-1.5;
   }
 
   .panel {
     @apply bg-base-surface border border-white/[0.06] rounded-xl shadow-panel;
+  }
+
+  .progress-track {
+    @apply relative h-2 rounded-full bg-white/[0.08] overflow-hidden;
+  }
+
+  .progress-fill {
+    @apply absolute inset-y-0 left-0 bg-accent rounded-full transition-[width] duration-300 ease-out;
+  }
+
+  .progress-fill-indeterminate {
+    @apply absolute inset-y-0 rounded-full bg-accent animate-indeterminate;
   }
 }

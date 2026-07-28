@@ -1,5 +1,7 @@
 import type { GalleryDatabase } from './db'
 import { extractMetadata } from './metadata'
+import { probeVideo } from './videoProbe'
+import type { MediaType } from '../shared/types'
 
 const BATCH_SIZE = 40
 const CONCURRENCY = 6
@@ -49,7 +51,7 @@ export class MetadataService {
   }
 
   private async worker(
-    items: { id: string; path: string; extension: string; isRaw: boolean }[],
+    items: { id: string; path: string; extension: string; isRaw: boolean; mediaType: MediaType }[],
     next: () => number,
     results: { id: string; ok: boolean }[]
   ): Promise<void> {
@@ -58,8 +60,29 @@ export class MetadataService {
       if (idx >= items.length) return
       const item = items[idx]
       try {
-        const meta = await extractMetadata(item.path, item.extension)
-        this.db.applyMetadata(item.id, meta, 'done')
+        if (item.mediaType === 'video') {
+          const v = await probeVideo(item.path)
+          this.db.applyMetadata(
+            item.id,
+            {
+              width: v.width,
+              height: v.height,
+              dateTaken: v.dateTaken,
+              orientation: v.orientation,
+              durationMs: v.durationMs,
+              videoCodec: v.videoCodec,
+              audioCodec: v.audioCodec,
+              container: v.container,
+              frameRate: v.frameRate,
+              bitrate: v.bitrate,
+              codecSupported: v.codecSupported
+            },
+            'done'
+          )
+        } else {
+          const meta = await extractMetadata(item.path, item.extension)
+          this.db.applyMetadata(item.id, meta, 'done')
+        }
         results.push({ id: item.id, ok: true })
       } catch {
         this.db.applyMetadata(item.id, {}, 'failed')
